@@ -1,0 +1,49 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    ports:
+      - "6333:6333"   # REST + dashboard at http://localhost:6333/dashboard
+      - "6334:6334"   # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: aeroxa
+      POSTGRES_PASSWORD: aeroxa
+      POSTGRES_DB: aeroxa
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aeroxa"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # The API is intentionally NOT run here by default: BGE-M3 and the reranker are ~2.3 GB
+  # of weights, and keeping the process on the host reuses the HuggingFace cache instead of
+  # re-downloading them into a container layer. Enable with:  docker compose --profile api up
+  api:
+    profiles: ["api"]
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      DATABASE_URL: postgresql://aeroxa:aeroxa@postgres:5432/aeroxa
+    env_file:
+      - .env
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    depends_on:
+      - qdrant
+      - postgres
+
+volumes:
+  qdrant_data:
+  postgres_data:
+  hf_cache:

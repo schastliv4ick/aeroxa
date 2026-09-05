@@ -1,0 +1,51 @@
+# Seed corpus: the acts a Chinese entrepreneur entering the Russian market actually hits.
+#
+# `nd` is the document id in ИПС «Законодательство России». The portal's search endpoint
+# currently returns HTTP 500, so ids cannot be looked up by query -- resolve them with:
+#
+#   python -m ingest.cli find --from <nd> --to <nd> --pattern "<title regex>"
+#
+# ids are roughly chronological by publication date, so bracket the act's publication date
+# using a nearby known id. Every id below was resolved this way and verified with
+# `ingest.cli probe`; add `scan_hint: [from, to]` to a new act to record its search range.
+#
+# `title_match` is checked against the title the portal returns before anything is
+# indexed. A mismatch aborts ingestion for that act, so a reassigned `nd` can never
+# silently put the wrong law into the corpus.
+
+acts:
+  - id: fz-14-ooo
+    nd: "102051516"
+    kind: Федеральный закон
+    number: 14-ФЗ
+    title_match: "Об обществах с ограниченной ответственностью"
+
+  - id: gk-rf-1
+    nd: "102033239"
+    kind: Кодекс
+    number: 51-ФЗ
+    # Part-specific: parts 2-4 are separate documents with near-identical titles.
+    title_match: "Гражданский кодекс Российской Федерации. Часть первая"
+
+  - id: fz-129-registration
+    nd: "102072405"
+    kind: Федеральный закон
+    number: 129-ФЗ
+    # Anchored: the same scan also matches three Duma/Council resolutions *about* the
+    # bill, whose titles begin «О проекте…» / «О Федеральном законе…». Only the act itself
+    # starts with the bare subject. ИПС still carries the original 2001 title, without the
+    # «и индивидуальных предпринимателей» added by a later amendment.
+    title_match: "^О государственной регистрации юридических лиц"
+
+  - id: tk-rf
+    nd: "102074279"
+    kind: Кодекс
+    number: 197-ФЗ
+    title_match: "^Трудовой кодекс Российской Федерации"
+
+  - id: nk-rf-2
+    nd: "102067058"
+    kind: Кодекс
+    number: 117-ФЗ
+    # Part-specific: часть первая is a separate document with a near-identical title.
+    title_match: "Налоговый кодекс Российской Федерации. Часть вторая"
