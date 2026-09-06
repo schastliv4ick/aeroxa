@@ -87,7 +87,35 @@ Then set `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL`. In production these must
 self-hosted OpenAI-compatible endpoint inside the perimeter — see
 [Confidentiality](#confidentiality).
 
-### 4. Build the corpus
+### 4. Model cache location — do this before the first run
+
+BGE-M3 and the reranker need **~9 GB** of cache between them, because Hugging Face stores
+every published weight format. The default location is on your home drive, which is often
+the drive with the least room. If it fills up mid-download you get a confusing failure —
+`OSError: Can't load the model for 'BAAI/bge-reranker-v2-m3'`, raised in the middle of a
+request rather than at startup.
+
+Point the cache at a disk with space, **in the same shell that runs the commands below**:
+
+**macOS / Linux**
+
+```bash
+export HF_HOME=/Volumes/data/hf-cache
+```
+
+**Windows (PowerShell)**
+
+```powershell
+$env:HF_HOME = "D:\hf-cache"
+```
+
+This must be a real environment variable — `.env` is read by this application, not by the
+Hugging Face libraries, so putting `HF_HOME` there has no effect. To set it permanently,
+add the `export` line to `~/.zshrc`, or on Windows run
+`[Environment]::SetEnvironmentVariable('HF_HOME', 'D:\hf-cache', 'User')` and open a new
+terminal.
+
+### 5. Build the corpus
 
 ```bash
 python -m ingest.cli run --act fz-14-ooo
@@ -97,7 +125,7 @@ First run downloads ~2.3 GB of model weights and then embeds every article on CP
 tens of minutes for a single act, hours for the full seed corpus. Fetched HTML is cached in
 `data/raw/`, so re-runs skip the network.
 
-### 5. Serve
+### 6. Serve
 
 ```bash
 python -m app.main

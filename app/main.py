@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from app.api.routes import router
 from app.config import get_settings
+from app.preflight import check_model_cache
 from app.rag.embedder import get_embedder
 from app.rag.reranker import get_reranker
 from app.storage.db import query_log
@@ -19,6 +20,10 @@ async def lifespan(app: FastAPI):
         level=settings.log_level,
         format="%(asctime)s %(levelname)-8s %(name)s | %(message)s",
     )
+    # Weights load lazily, so a full cache disk would otherwise surface as an obscure
+    # "Can't load the model" deep inside the first /ask. Say it up front instead.
+    check_model_cache([settings.embedding_model, settings.reranker_model])
+
     await query_log.connect()
 
     if settings.models_eager_load:
