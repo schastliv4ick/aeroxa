@@ -213,9 +213,21 @@ Endpoints:
 Multi-turn: pass prior turns in `history`; the backend condenses the follow-up into a
 standalone question before retrieval. The service itself stays stateless.
 
-When retrieval is too weak to support an answer, `/ask` returns `abstained: true` and
-`escalate: true` with a message in the user's language. It never guesses — that is the
-"ноль галлюцинаций" requirement, and the lawyer-in-the-loop is what covers the gap.
+When `/ask` cannot produce a generated answer it returns `abstained: true`,
+`escalate: true`, and a `reason` saying which of two very different things happened:
+
+| `reason` | Meaning | Citations |
+|---|---|---|
+| `low_relevance` | The corpus does not support an answer. A statement about the law. | empty |
+| `generation_unavailable` | Retrieval worked; the LLM was unreachable. An outage on our side. | **populated** |
+
+The distinction matters more than it looks. Saying "no provision was found" when retrieval
+actually succeeded tells the client something false about their legal position and files a
+misleading "nothing found" row in the lawyer's queue. Treat `generation_unavailable` as an
+incident, not as a legal finding, and exclude it from any training set built from the log.
+
+It never guesses — that is the "ноль галлюцинаций" requirement, and the lawyer-in-the-loop
+is what covers the gap.
 
 `ABSTAIN_THRESHOLD` defaults to **0.05**, which is far lower than it looks like it should
 be. That number is measured, not guessed: the reranker scores a Chinese question against a

@@ -156,3 +156,86 @@ def test_api_key_is_not_required_by_default(client, monkeypatch):
         StubPipeline(AnswerResult(answer="ok", language="ru", abstained=False, escalate=False)),
     )
     assert client.post("/ask", json={"question": "тест"}).status_code == 200
+
+
+def test_generation_outage_does_not_claim_the_law_is_silent(client, monkeypatch):
+    """Regression: an LLM failure used to return the "no provision found" message.
+
+    Retrieval had succeeded — the correct article was in hand — so telling the client that
+    Russian law contains nothing on the point was simply false, and it put a misleading
+    "nothing found" row in the lawyer's queue. The outage must be reported as an outage.
+    """
+    from app.rag.prompts import ABSTENTION_MESSAGES, GENERATION_UNAVAILABLE_MESSAGES
+
+    _install(
+        monkeypatch,
+        StubPipeline(
+            AnswerResult(
+                answer=GENERATION_UNAVAILABLE_MESSAGES["ru"],
+                language="ru",
+                abstained=True,
+                escalate=True,
+                reason="generation_unavailable",
+                fragments=[Fragment(payload=PAYLOAD, score=0.99, retrieval_score=0.8)],
+                latency_ms=900,
+            )
+        ),
+    )
+    body = client.post("/ask", json={"question": "Каков минимальный уставный капитал?"}).json()
+
+    assert body["reason"] == "generation_unavailable"
+    assert body["escalate"] is True
+    # The citations survive: we found the norm, we just could not phrase the answer.
+    assert body["citations"][0]["article_number"] == "14"
+    # And we must not have said the corpus is silent.
+    assert body["answer"] != ABSTENTION_MESSAGES["ru"]
+    assert "не нашлось нормы" not in body["answer"]
+
+
+def test_low_relevance_abstention_is_labelled_distinctly(client, monkeypatch):
+    from app.rag.prompts import ABSTENTION_MESSAGES
+
+    _install(
+        monkeypatch,
+        StubPipeline(
+            AnswerResult(
+                answer=ABSTENTION_MESSAGES["ru"],
+                language="ru",
+                abstained=True,
+                escalate=True,
+                reason="low_relevance",
+                latency_ms=700,
+            )
+        ),
+    )
+    body = client.post("/ask", json={"question": "Какая ставка НДС?"}).json()
+    assert body["reason"] == "low_relevance"
+    assert body["citations"] == []
+
+
+def test_successful_answer_has_no_reason(client, monkeypatch):
+    _install(
+        monkeypatch,
+        StubPipeline(
+            AnswerResult(
+                answer="Ответ со ссылкой на Статью 14 [1].",
+                language="ru",
+                abstained=False,
+                escalate=False,
+                fragments=[Fragment(payload=PAYLOAD, score=0.94, retrieval_score=0.7)],
+                model="qwen3",
+                latency_ms=1200,
+            )
+        ),
+    )
+    body = client.post("/ask", json={"question": "тест"}).json()
+    assert body["reason"] is None
+    assert body["abstained"] is False
+
+
+def test_every_supported_language_has_an_outage_message():
+    from app.rag.prompts import ABSTENTION_MESSAGES, GENERATION_UNAVAILABLE_MESSAGES
+
+    assert set(GENERATION_UNAVAILABLE_MESSAGES) == set(ABSTENTION_MESSAGES)
+    for language, text in GENERATION_UNAVAILABLE_MESSAGES.items():
+        assert text != ABSTENTION_MESSAGES[language]

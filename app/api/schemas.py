@@ -41,6 +41,12 @@ class AskResponse(BaseModel):
     language: str
     abstained: bool
     escalate: bool
+    # Why there is no generated answer, when abstained is true:
+    #   "low_relevance"           - the corpus does not support an answer
+    #   "generation_unavailable"  - retrieval worked, the generator did not
+    # Only the first is a statement about the law; the second is an outage on our side,
+    # and the citations are still populated. null when an answer was produced.
+    reason: Literal["low_relevance", "generation_unavailable"] | None = None
     citations: list[Citation]
     standalone_question: str | None = None
     model: str | None = None

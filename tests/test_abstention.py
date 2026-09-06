@@ -114,3 +114,80 @@ def test_without_the_reranker_the_threshold_does_not_apply(pipeline, monkeypatch
     monkeypatch.setattr(pipeline._settings, "rerank_enabled", False)
     assert pipeline._should_abstain(_fragments(0.001), "ru") is False
     assert pipeline._should_abstain([], "ru") is True
+
+
+# --- the no-answer paths inside the pipeline itself ------------------------------------
+
+
+@pytest.fixture
+def offline_pipeline(monkeypatch):
+    """A pipeline whose retrieval is stubbed, so no models or Qdrant are needed."""
+    from app.rag import pipeline as pipeline_module
+
+    get_settings.cache_clear()
+    p = pipeline_module.Pipeline()
+
+    def _fragments(score: float):
+        payload = {
+            "act_id": "fz-14-ooo",
+            "article_number": "14",
+            "act_title": "Об ООО",
+            "breadcrumbs": "Об ООО · Статья 14",
+            "text": "Размер уставного капитала не менее десяти тысяч рублей.",
+        }
+        return [pipeline_module.Fragment(payload=payload, score=score, retrieval_score=score)]
+
+    p._stub_fragments = _fragments  # type: ignore[attr-defined]
+    yield p, pipeline_module
+    get_settings.cache_clear()
+
+
+def test_pipeline_reports_an_llm_outage_as_an_outage(offline_pipeline, monkeypatch):
+    """The reported production failure: OpenRouter answered 403 and the client was told
+    that Russian law contains no relevant provision."""
+    import asyncio
+
+    from app.rag import prompts
+    from app.rag.llm import LLMError
+
+    p, module = offline_pipeline
+    good = p._stub_fragments(0.99)
+
+    async def fake_retrieve(*args, **kwargs):
+        return good
+
+    class BrokenLLM:
+        model = "qwen3"
+
+        async def complete(self, *args, **kwargs):
+            raise LLMError("Error code: 403 - Access denied by security policy.")
+
+    monkeypatch.setattr(p, "retrieve", fake_retrieve)
+    monkeypatch.setattr(module, "get_llm", lambda: BrokenLLM())
+
+    result = asyncio.run(p.answer("Каков минимальный размер уставного капитала ООО?"))
+
+    assert result.reason == module.NO_ANSWER_GENERATION_UNAVAILABLE
+    assert result.escalate is True
+    assert result.answer == prompts.GENERATION_UNAVAILABLE_MESSAGES["ru"]
+    assert result.answer != prompts.ABSTENTION_MESSAGES["ru"]
+    # The retrieved norms must survive the outage — they are what the lawyer needs.
+    assert result.fragments == good
+
+
+def test_pipeline_labels_a_genuine_low_relevance_abstention(offline_pipeline, monkeypatch):
+    import asyncio
+
+    from app.rag import prompts
+
+    p, module = offline_pipeline
+
+    async def fake_retrieve(*args, **kwargs):
+        return p._stub_fragments(0.001)  # far below ABSTAIN_THRESHOLD
+
+    monkeypatch.setattr(p, "retrieve", fake_retrieve)
+
+    result = asyncio.run(p.answer("Какая ставка НДС при импорте?"))
+
+    assert result.reason == module.NO_ANSWER_LOW_RELEVANCE
+    assert result.answer == prompts.ABSTENTION_MESSAGES["ru"]

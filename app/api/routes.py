@@ -53,6 +53,7 @@ async def ask(request: AskRequest) -> AskResponse:
         citations=[citation.model_dump() for citation in citations],
         model=result.model,
         latency_ms=result.latency_ms,
+        reason=result.reason,
     )
 
     return AskResponse(
@@ -60,6 +61,7 @@ async def ask(request: AskRequest) -> AskResponse:
         language=result.language,
         abstained=result.abstained,
         escalate=result.escalate,
+        reason=result.reason,
         citations=citations,
         standalone_question=result.standalone_question,
         model=result.model,

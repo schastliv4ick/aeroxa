@@ -17,6 +17,26 @@ LANGUAGE_NAMES = {
     "en": "English",
 }
 
+# Two very different situations must not share a message. "No provision was found" is a
+# statement about Russian law; saying it when retrieval actually succeeded and only the
+# generator was unreachable tells the client something false about their legal position,
+# and puts a misleading "nothing found" row in the lawyer's queue.
+GENERATION_UNAVAILABLE_MESSAGES = {
+    "ru": (
+        "Сервис формирования ответа временно недоступен. Найденные нормы сохранены, "
+        "вопрос передан юристу. Это техническая неполадка, а не отсутствие регулирования."
+    ),
+    "zh": (
+        "答复生成服务暂时不可用。检索到的法律条款已保存，问题已转交律师处理。"
+        "这是技术故障，并不表示法律没有相关规定。"
+    ),
+    "en": (
+        "The answer service is temporarily unavailable. The provisions found for your "
+        "question have been saved and it has been referred to a lawyer. This is a technical "
+        "fault, not an absence of regulation."
+    ),
+}
+
 ABSTENTION_MESSAGES = {
     "ru": (
         "В доступных материалах законодательства РФ не нашлось нормы, прямо отвечающей "

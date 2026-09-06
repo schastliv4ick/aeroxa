@@ -32,8 +32,13 @@ CREATE TABLE IF NOT EXISTS query_log (
     escalated       BOOLEAN     NOT NULL,
     citations       JSONB       NOT NULL,
     model           TEXT,
-    latency_ms      INTEGER     NOT NULL
+    latency_ms      INTEGER     NOT NULL,
+    -- Why no answer was generated: "low_relevance" or "generation_unavailable".
+    -- The lawyer queue and any future fine-tuning set must not treat an outage as
+    -- evidence that the corpus lacks a norm.
+    reason          TEXT
 );
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS reason TEXT;
 CREATE INDEX IF NOT EXISTS query_log_created_at_idx ON query_log (created_at DESC);
 CREATE INDEX IF NOT EXISTS query_log_escalated_idx ON query_log (escalated) WHERE escalated;
 """
@@ -75,8 +80,8 @@ class QueryLog:
                     """
                     INSERT INTO query_log
                         (question, standalone, language, answer, abstained, escalated,
-                         citations, model, latency_ms)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
+                         citations, model, latency_ms, reason)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
                     """,
                     row["question"],
                     row.get("standalone"),
@@ -87,6 +92,7 @@ class QueryLog:
                     json.dumps(row.get("citations", []), ensure_ascii=False),
                     row.get("model"),
                     row["latency_ms"],
+                    row.get("reason"),
                 )
         except Exception:
             log.exception("failed to write query log row")

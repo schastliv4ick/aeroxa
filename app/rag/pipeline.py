@@ -34,12 +34,20 @@ class Fragment:
         return {"breadcrumbs": self.payload.get("breadcrumbs", ""), "text": self.payload.get("text", "")}
 
 
+# Why no generated answer was produced. The website and the lawyer queue must be able to
+# tell "the corpus does not cover this" from "our generator was down" -- they are different
+# facts and only one of them is about the law.
+NO_ANSWER_LOW_RELEVANCE = "low_relevance"
+NO_ANSWER_GENERATION_UNAVAILABLE = "generation_unavailable"
+
+
 @dataclass
 class AnswerResult:
     answer: str
     language: str
     abstained: bool
     escalate: bool
+    reason: str | None = None
     fragments: list[Fragment] = field(default_factory=list)
     standalone_question: str | None = None
     model: str | None = None
@@ -128,6 +136,7 @@ class Pipeline:
                 language=answer_language,
                 abstained=True,
                 escalate=True,
+                reason=NO_ANSWER_LOW_RELEVANCE,
                 fragments=fragments,
                 standalone_question=standalone if standalone != question else None,
                 latency_ms=_elapsed_ms(started),
@@ -153,15 +162,18 @@ class Pipeline:
         try:
             answer = await llm.complete(messages)
         except LLMError:
-            # Generation failing must not produce a fabricated answer. Escalate instead.
-            log.exception("generation failed; escalating")
+            # Generation failing must not produce a fabricated answer. Escalate instead --
+            # but never by claiming the law is silent: retrieval succeeded, so the
+            # fragments are returned and the message says the generator is down.
+            log.exception("generation unavailable; escalating with retrieved fragments")
             return AnswerResult(
-                answer=prompts.ABSTENTION_MESSAGES.get(
-                    answer_language, prompts.ABSTENTION_MESSAGES["en"]
+                answer=prompts.GENERATION_UNAVAILABLE_MESSAGES.get(
+                    answer_language, prompts.GENERATION_UNAVAILABLE_MESSAGES["en"]
                 ),
                 language=answer_language,
                 abstained=True,
                 escalate=True,
+                reason=NO_ANSWER_GENERATION_UNAVAILABLE,
                 fragments=fragments,
                 standalone_question=standalone if standalone != question else None,
                 latency_ms=_elapsed_ms(started),
