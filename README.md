@@ -1,3 +1,5 @@
+**English** · [Русский](README.ru.md)
+
 # Aeroxa Legal RAG (MVP)
 
 Backend that answers legal questions about Russian Federation law for foreign
@@ -18,42 +20,84 @@ current in-force redaction. Cross-lingual retrieval is verified: 有限责任公
 
 ## Quick start
 
-**1. Infrastructure**
+Commands are given for **macOS / Linux** (bash or zsh) and **Windows** (PowerShell). Run
+them from the repository root.
+
+### 1. Infrastructure
+
+Same on every platform:
 
 ```bash
 docker compose up -d qdrant postgres
 ```
 
-If that fails with `dial tcp: lookup registry-1.docker.io: no such host`, Docker Hub is not
+If this fails with `dial tcp: lookup registry-1.docker.io: no such host`, Docker Hub is not
 reachable from your network — see [Troubleshooting](#troubleshooting).
 
-**2. Python environment**
+### 2. Python environment
+
+Python 3.11 or newer.
+
+**macOS / Linux**
 
 ```bash
-python -m venv .venv && .venv/Scripts/activate && pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-**3. Configuration**
+**Windows (PowerShell)**
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+```
+
+Two differences that matter:
+
+- The virtualenv layout differs — macOS and Linux create `.venv/bin/`, Windows creates
+  `.venv\Scripts\`. There is no `activate` script at the other path.
+- The `--extra-index-url` pins CPU-only PyTorch wheels. Use it on Windows and Linux, where
+  the default wheel can pull in CUDA libraries you will not use. On macOS it is simply
+  unnecessary — PyTorch has no CUDA build for macOS, so the default PyPI wheel is already
+  CPU/MPS-only. Adding the flag there is harmless, just pointless.
+
+If PowerShell refuses to run the activation script, allow it for the current session:
+`Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned`.
+
+After activation, `python` refers to the virtualenv on both platforms, so every command
+below is identical.
+
+### 3. Configuration
+
+**macOS / Linux**
 
 ```bash
 cp .env.example .env
 ```
 
-Set `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL`. In production these must point at a
-self-hosted OpenAI-compatible endpoint inside the perimeter — see the confidentiality note
-below.
+**Windows (PowerShell)**
 
-**4. Build the corpus**
+```powershell
+Copy-Item .env.example .env
+```
+
+Then set `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL`. In production these must point at a
+self-hosted OpenAI-compatible endpoint inside the perimeter — see
+[Confidentiality](#confidentiality).
+
+### 4. Build the corpus
 
 ```bash
 python -m ingest.cli run --act fz-14-ooo
 ```
 
 First run downloads ~2.3 GB of model weights and then embeds every article on CPU. Expect
-tens of minutes for a single act, hours for the full seed corpus. Fetched HTML is cached
-in `data/raw/`, so re-runs skip the network.
+tens of minutes for a single act, hours for the full seed corpus. Fetched HTML is cached in
+`data/raw/`, so re-runs skip the network.
 
-**5. Serve**
+### 5. Serve
 
 ```bash
 python -m app.main
@@ -63,8 +107,33 @@ python -m app.main
 
 ## Asking a question
 
+The request body contains Cyrillic, so how you send it depends on your shell.
+
+**macOS / Linux** — single quotes keep the JSON intact:
+
 ```bash
-curl -s localhost:8000/ask -H "Content-Type: application/json" -d "{\"question\": \"Каков минимальный размер уставного капитала ООО?\"}"
+curl -s localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Каков минимальный размер уставного капитала ООО?"}'
+```
+
+**Windows (PowerShell)** — use `Invoke-RestMethod`, and keep `charset=utf-8` so Cyrillic
+survives:
+
+```powershell
+Invoke-RestMethod -Uri http://localhost:8000/ask -Method Post `
+  -ContentType 'application/json; charset=utf-8' `
+  -Body '{"question": "Каков минимальный размер уставного капитала ООО?"}'
+```
+
+Do **not** use bare `curl` in Windows PowerShell: it is an alias for `Invoke-WebRequest`,
+which does not accept `-s`, `-H` or `-d`. If you want real curl, call `curl.exe` explicitly.
+
+**Any platform, non-ASCII-safe** — put the body in a UTF-8 file and post that. This avoids
+console-encoding problems entirely and is the reliable option on Windows:
+
+```bash
+curl -s localhost:8000/ask -H "Content-Type: application/json" -d @question.json
 ```
 
 ```jsonc
@@ -105,6 +174,8 @@ abstentions. Full measurement in [docs/SPEC.md §4](docs/SPEC.md); do not raise 
 rerunning that calibration.
 
 ## Managing the corpus
+
+Identical on every platform:
 
 ```bash
 python -m ingest.cli list                 # registry and which nd ids are resolved
@@ -152,6 +223,11 @@ machine: 0.3–1 s to embed a query, 2–5 s to rerank 40 candidates, and hours 
 large corpus. Indexing is a one-time batch. Query latency is dominated by the reranker —
 lower `RETRIEVE_TOP_K` or set `RERANK_ENABLED=false` to trade retrieval quality for speed.
 
+On Apple Silicon the PyPI PyTorch wheel includes the Metal (MPS) backend. Whether the
+embedding stack actually uses it depends on how FlagEmbedding selects a device, so time a
+`/search` call before assuming a speedup rather than taking it for granted. Leave
+`USE_FP16=false` on CPU — half precision is a GPU optimisation and is slower there.
+
 ## Troubleshooting
 
 **Docker Hub is unreachable** (`lookup registry-1.docker.io: no such host`). Common on
@@ -168,17 +244,34 @@ leave `DATABASE_URL` unset and the service runs without the query log.
 
 **Model downloads fail with `No space left on device` or a bare `OSError: Can't load the
 model`.** BGE-M3 and the reranker together need roughly 9 GB of cache, because Hugging Face
-stores every published weight format. Put the cache on a drive with room:
+stores every published weight format. Put the cache on a disk with room:
+
+**macOS / Linux**
 
 ```bash
-export HF_HOME=/d/hf-cache      # PowerShell: $env:HF_HOME = "D:\hf-cache"
+export HF_HOME=/Volumes/data/hf-cache
 ```
 
-Set it as a real environment variable before starting the process — `.env` is read by the
-application, not by the Hugging Face libraries.
+**Windows (PowerShell)**
+
+```powershell
+$env:HF_HOME = "D:\hf-cache"
+```
+
+Set it as a real environment variable in the shell **before** starting the process — `.env`
+is read by this application, not by the Hugging Face libraries. To make it permanent, add
+the `export` line to `~/.zshrc` (macOS) or use
+`[Environment]::SetEnvironmentVariable('HF_HOME', 'D:\hf-cache', 'User')` on Windows.
 
 **Downloads hang or fail inside `xet_get`.** Disable Hugging Face's Xet transfer path:
-`HF_HUB_DISABLE_XET=1`.
+`HF_HUB_DISABLE_XET=1` (`$env:HF_HUB_DISABLE_XET = "1"` in PowerShell).
+
+**PowerShell blocks `Activate.ps1`.** Allow scripts for the current session only:
+`Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned`.
+
+**Cyrillic in a request turns into `?` or a JSON decode error.** Your console is not using
+UTF-8. Send the body from a UTF-8 file with `-d @question.json`, or use `Invoke-RestMethod`
+with `charset=utf-8` as shown above.
 
 ## Tests
 
@@ -186,8 +279,8 @@ application, not by the Hugging Face libraries.
 python -m pytest
 ```
 
-Parsing, chunking and prompt helpers are covered and need no Qdrant, no models and no
-network. That is the layer corpus bugs come from.
+59 tests covering parsing, chunking, the vector store, the API contract, context
+diversification and abstention calibration. None of them need Docker, models or network.
 
 ## Not in this MVP
 
