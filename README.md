@@ -118,7 +118,7 @@ curl -s localhost:8000/ask \
 ```
 
 **Windows (PowerShell)** — use `Invoke-RestMethod`, and keep `charset=utf-8` so Cyrillic
-survives:
+survives. This is the recommended form on Windows:
 
 ```powershell
 Invoke-RestMethod -Uri http://localhost:8000/ask -Method Post `
@@ -127,14 +127,38 @@ Invoke-RestMethod -Uri http://localhost:8000/ask -Method Post `
 ```
 
 Do **not** use bare `curl` in Windows PowerShell: it is an alias for `Invoke-WebRequest`,
-which does not accept `-s`, `-H` or `-d`. If you want real curl, call `curl.exe` explicitly.
+which does not accept `-s`, `-H` or `-d`.
 
-**Any platform, non-ASCII-safe** — put the body in a UTF-8 file and post that. This avoids
-console-encoding problems entirely and is the reliable option on Windows:
+### Sending the body from a file
+
+If your console mangles Cyrillic, put the body in a UTF-8 file and post that. The file must
+have **no BOM** — a byte-order mark makes the JSON unparseable.
+
+**macOS / Linux**
 
 ```bash
+cat > question.json <<'JSON'
+{"question": "Каков минимальный размер уставного капитала ООО?"}
+JSON
+
 curl -s localhost:8000/ask -H "Content-Type: application/json" -d @question.json
 ```
+
+**Windows (PowerShell)**
+
+```powershell
+[System.IO.File]::WriteAllText("$PWD\question.json",
+  '{"question": "Каков минимальный размер уставного капитала ООО?"}',
+  (New-Object System.Text.UTF8Encoding $false))
+
+curl.exe -s localhost:8000/ask -H "Content-Type: application/json" -d "@question.json"
+```
+
+Three things differ on Windows and all three are required: `curl.exe` rather than `curl`;
+`"@question.json"` **in quotes**, because an unquoted `@` starts PowerShell splatting and
+fails with `SplattingNotPermitted`; and `WriteAllText` with `UTF8Encoding $false` rather
+than `Set-Content -Encoding utf8`, which in Windows PowerShell 5.1 writes a BOM and
+produces `Unexpected UTF-8 BOM` on the server.
 
 ```jsonc
 {
@@ -218,10 +242,27 @@ be replaced with an in-perimeter endpoint before any client data reaches the sys
 
 ## Performance on CPU
 
-BGE-M3 and bge-reranker-v2-m3 are ~560M-parameter models. Rough figures on a CPU-only
-machine: 0.3–1 s to embed a query, 2–5 s to rerank 40 candidates, and hours to index a
-large corpus. Indexing is a one-time batch. Query latency is dominated by the reranker —
-lower `RETRIEVE_TOP_K` or set `RERANK_ENABLED=false` to trade retrieval quality for speed.
+BGE-M3 and bge-reranker-v2-m3 are ~560M-parameter models. Measured end-to-end over HTTP on
+a 12-core CPU (no GPU), against the ФЗ-14 corpus:
+
+| Request | Latency |
+|---|---|
+| First request after startup (loads ~2.3 GB of weights) | **~296 s** |
+| `/search`, `RERANK_ENABLED=false` (embed + hybrid search only) | **~0.4 s** |
+| `/search`, rerank of `RETRIEVE_TOP_K=10` candidates | **~23 s** |
+| `/search`, rerank of `RETRIEVE_TOP_K=40` candidates | **~100 s** |
+
+**The cross-encoder dominates everything else by two orders of magnitude,** and it scales
+linearly with `RETRIEVE_TOP_K`. Retrieval itself is sub-second; reranking 40 candidates is
+100 seconds. Plan around this rather than around the model sizes:
+
+- Set `MODELS_EAGER_LOAD=true` so the ~5-minute cold start happens at boot instead of
+  landing on your first user. Give clients a generous timeout regardless.
+- On CPU, `RETRIEVE_TOP_K=40` is not viable for an interactive UI. Lower it, or set
+  `RERANK_ENABLED=false` for ~0.4 s at a real cost in precision on close wordings.
+- **The reranker belongs on the GPU box, not the CPU VM.** The ТЗ's cost plan (slide 14)
+  puts embeddings and reranking on a CPU VM; these numbers say that will not hold at
+  interactive latency, and the budget should assume reranking runs beside the LLM.
 
 On Apple Silicon the PyPI PyTorch wheel includes the Metal (MPS) backend. Whether the
 embedding stack actually uses it depends on how FlagEmbedding selects a device, so time a
@@ -229,6 +270,28 @@ embedding stack actually uses it depends on how FlagEmbedding selects a device, 
 `USE_FP16=false` on CPU — half precision is a GPU optimisation and is slower there.
 
 ## Troubleshooting
+
+**`/health` reports `qdrant: unreachable: Unexpected Response: 503` while Qdrant itself
+answers fine** (`curl http://localhost:6333/collections` works). A system-wide VPN or proxy
+is intercepting the loopback request. Common on Russian networks: with `HTTP_PROXY` set and
+`NO_PROXY` not listing `localhost`, the HTTP client sends `http://localhost:6333` to the
+proxy, which returns an empty 503 that looks like Qdrant is down.
+
+The application already defends against this — `QDRANT_TRUST_ENV` defaults to `false`, so
+the Qdrant client ignores proxy environment variables entirely. If you have set it to
+`true`, either unset it or exclude loopback from the proxy in the shell that runs the
+server:
+
+```powershell
+$env:NO_PROXY = "localhost,127.0.0.1,::1"
+```
+
+```bash
+export NO_PROXY=localhost,127.0.0.1,::1
+```
+
+Note the LLM client deliberately *does* honour the proxy, since a hosted endpoint may only
+be reachable through it.
 
 **Docker Hub is unreachable** (`lookup registry-1.docker.io: no such host`). Common on
 Russian networks. Either configure a registry mirror in Docker Desktop → Settings → Docker

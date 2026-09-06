@@ -198,12 +198,30 @@ default — the data justifies lowering the common value, not yet splitting it.
 set.** They are pinned in `tests/test_abstention.py` so the regression cannot silently
 return, and they are the first thing the evaluation harness (§8) must replace.
 
-### CPU performance expectation
+### CPU performance — measured, and it has an architectural consequence
 
-BGE-M3 and bge-reranker-v2-m3 are ~560M-parameter models. On CPU expect roughly
-0.3–1 s to embed a query, 2–5 s to rerank 40 candidates, and **hours** to index a large
-corpus. Indexing is a one-time batch; query latency is dominated by the reranker. Reduce
-`RETRIEVE_TOP_K` or set `RERANK_ENABLED=false` to trade quality for latency.
+End-to-end over HTTP on a 12-core CPU with no GPU, against the ФЗ-14 corpus:
+
+| Request | Latency |
+|---|---|
+| First request after startup (loads ~2.3 GB of weights) | ~296 s |
+| `/search` with `RERANK_ENABLED=false` | ~0.4 s |
+| `/search`, rerank of `RETRIEVE_TOP_K=10` | ~23 s |
+| `/search`, rerank of `RETRIEVE_TOP_K=40` | ~100 s |
+
+Retrieval is sub-second. The cross-encoder costs two orders of magnitude more and scales
+linearly with `RETRIEVE_TOP_K`.
+
+**This contradicts the cost plan.** ТЗ slide 14 assigns embeddings and reranking to a
+CPU VM (≈3–6 тыс. ₽) and reserves the GPU for LLM inference. At ~100 s per query for
+`RETRIEVE_TOP_K=40`, that split does not survive contact with an interactive UI. Either the
+reranker moves onto the GPU box beside the LLM, or `RETRIEVE_TOP_K` drops far enough to
+weaken the stage the ТЗ added it for (slide 9: cross-encoder precision on близкие
+формулировки). The budget should assume the former. Indexing is a one-time batch and is
+unaffected.
+
+`MODELS_EAGER_LOAD=true` moves the ~5-minute cold start to service boot rather than onto
+the first user's request.
 
 ## 5. Generation (ТЗ slide 10)
 

@@ -38,6 +38,10 @@ class QdrantStore:
             url=settings.qdrant_url,
             api_key=settings.qdrant_api_key,
             timeout=60,
+            # Forwarded to the underlying httpx client. See `qdrant_trust_env`: with a
+            # system-wide proxy configured, trusting the environment sends localhost
+            # traffic through it and Qdrant appears to return an empty 503.
+            trust_env=settings.qdrant_trust_env,
         )
 
     @property

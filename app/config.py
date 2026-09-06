@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str | None = None
     qdrant_collection: str = "ru_law"
+    # Whether the Qdrant client honours HTTP_PROXY/HTTPS_PROXY from the environment.
+    # Default false: Qdrant is self-hosted inside the perimeter, so routing its traffic
+    # through an external proxy is never correct. This matters in practice -- a
+    # system-wide VPN proxy (common on Russian networks) intercepts even
+    # http://localhost:6333 unless NO_PROXY happens to list it, and answers with an empty
+    # 503 that looks like Qdrant is down. Set true only if Qdrant genuinely sits behind a
+    # proxy.
+    qdrant_trust_env: bool = False
 
     # --- Postgres (query log; optional -- unset disables logging) -------------
     database_url: str | None = None
