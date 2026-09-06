@@ -38,6 +38,11 @@ reachable from your network — see [Troubleshooting](#troubleshooting).
 
 Python 3.11 or newer.
 
+Run these **once**. If `.venv` already exists, only activate it — re-running
+`python -m venv .venv` while the environment is active fails with
+`Permission denied: python.exe`, because the interpreter it is trying to replace is the one
+running the command.
+
 **macOS / Linux**
 
 ```bash
@@ -71,16 +76,19 @@ below is identical.
 
 ### 3. Configuration
 
+These forms will not overwrite an existing `.env` — a plain copy silently discards the
+API keys and tuning you have already put there.
+
 **macOS / Linux**
 
 ```bash
-cp .env.example .env
+cp -n .env.example .env
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-Copy-Item .env.example .env
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
 Then set `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL`. In production these must point at a
@@ -332,6 +340,26 @@ export NO_PROXY=localhost,127.0.0.1,::1
 
 Note the LLM client deliberately *does* honour the proxy, since a hosted endpoint may only
 be reachable through it.
+
+**Qdrant crash-loops after changing its image version**, with
+``unknown variant `on_disk` `` in `docker compose logs qdrant`, and everything else then
+fails with connection refused. Qdrant storage is **not** forward-compatible across many
+minor versions — 1.12 data cannot be read by 1.19. Changing the pinned image is a data
+migration, not a dependency bump.
+
+To recover without losing data, put the previous version back in `docker-compose.yml` and
+`docker compose up -d --force-recreate qdrant`. To actually move to a newer Qdrant, wipe
+the volume and re-index:
+
+```bash
+docker compose down qdrant
+docker volume rm aeroxa_qdrant_data
+docker compose up -d qdrant
+python -m ingest.cli run
+```
+
+Re-indexing is cheaper than it sounds — fetched HTML is cached in `data/raw/`, so only the
+embedding pass runs again.
 
 **Docker Hub is unreachable** (`lookup registry-1.docker.io: no such host`). Common on
 Russian networks. Either configure a registry mirror in Docker Desktop → Settings → Docker

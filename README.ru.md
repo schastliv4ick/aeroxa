@@ -39,6 +39,11 @@ Hub недоступен из вашей сети — см. [Диагности�
 
 Требуется Python 3.11 или новее.
 
+Эти команды выполняются **один раз**. Если `.venv` уже создан, достаточно его
+активировать: повторный `python -m venv .venv` при активном окружении падает с
+`Permission denied: python.exe`, потому что пытается перезаписать тот самый интерпретатор,
+которым запущен.
+
 **macOS / Linux**
 
 ```bash
@@ -72,16 +77,19 @@ pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requiremen
 
 ### 3. Конфигурация
 
+В таком виде команды не перезапишут существующий `.env` — обычное копирование молча
+затирает ключи и настройки, которые вы туда уже внесли.
+
 **macOS / Linux**
 
 ```bash
-cp .env.example .env
+cp -n .env.example .env
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-Copy-Item .env.example .env
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
 Затем задайте `LLM_BASE_URL`, `LLM_API_KEY` и `LLM_MODEL`. В продакшене они должны
@@ -337,6 +345,26 @@ export NO_PROXY=localhost,127.0.0.1,::1
 
 Клиент LLM, наоборот, намеренно учитывает прокси: внешний эндпоинт может быть доступен
 только через него.
+
+**Qdrant уходит в цикл перезапуска после смены версии образа**, в
+`docker compose logs qdrant` видно ``unknown variant `on_disk` ``, а всё остальное падает с
+«соединение отвергнуто». Хранилище Qdrant **не** совместимо вперёд через много минорных
+версий: данные от 1.12 не читаются версией 1.19. Смена закреплённого образа — это миграция
+данных, а не обновление зависимости.
+
+Чтобы восстановиться без потери данных, верните прежнюю версию в `docker-compose.yml` и
+выполните `docker compose up -d --force-recreate qdrant`. Чтобы действительно перейти на
+новый Qdrant, очистите том и переиндексируйте:
+
+```bash
+docker compose down qdrant
+docker volume rm aeroxa_qdrant_data
+docker compose up -d qdrant
+python -m ingest.cli run
+```
+
+Переиндексация дешевле, чем кажется: HTML закэширован в `data/raw/`, поэтому заново
+считаются только эмбеддинги.
 
 **Docker Hub недоступен** (`lookup registry-1.docker.io: no such host`). Частая ситуация в
 российских сетях. Либо настройте зеркало реестра в Docker Desktop → Settings → Docker

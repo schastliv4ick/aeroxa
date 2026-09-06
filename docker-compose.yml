@@ -1,7 +1,15 @@
 services:
   qdrant:
-    # Keep this in step with qdrant-client in requirements.txt.
-    image: qdrant/qdrant:v1.19.1
+    # DO NOT bump this casually. Qdrant storage is not forward-compatible across many
+    # minor versions: going from 1.12 to 1.19 makes the server panic on startup with
+    # `unknown variant \`on_disk\`` and crash-loop, taking the whole service down.
+    # Changing this version requires re-indexing the corpus (or a snapshot migration),
+    # so treat it as a data migration, not a dependency bump.
+    #
+    # qdrant-client is newer than this and logs a version-mismatch warning on connect.
+    # The warning is cosmetic: every API this project uses (query_points with RRF fusion,
+    # sparse vectors, set_payload with a filter) works against 1.12.
+    image: qdrant/qdrant:v1.12.4
     ports:
       - "6333:6333"   # REST + dashboard at http://localhost:6333/dashboard
       - "6334:6334"   # gRPC
