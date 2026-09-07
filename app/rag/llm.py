@@ -25,6 +25,10 @@ class LLMClient:
     def __init__(self) -> None:
         settings = get_settings()
         self._settings = settings
+        # The SDK retries transient failures itself (max_retries defaults to 2: 429,
+        # 5xx, connection errors and timeouts), so there is no retry wrapper here. It
+        # deliberately does not retry 401/403 -- those are normally permanent, and a
+        # generation failure escalates to a lawyer rather than being papered over.
         self._client = AsyncOpenAI(
             base_url=settings.llm_base_url,
             api_key=settings.llm_api_key,

@@ -397,6 +397,22 @@ the `export` line to `~/.zshrc` (macOS) or use
 **Downloads hang or fail inside `xet_get`.** Disable Hugging Face's Xet transfer path:
 `HF_HUB_DISABLE_XET=1` (`$env:HF_HUB_DISABLE_XET = "1"` in PowerShell).
 
+**Startup makes ~10 requests to huggingface.co even though the models are cached.** Those
+are revision checks, not downloads, but they cost several seconds and make the service
+depend on Hugging Face being reachable — awkward on a restricted network. Once the weights
+are on disk, pin the cache:
+
+```bash
+export HF_HUB_OFFLINE=1
+```
+
+```powershell
+$env:HF_HUB_OFFLINE = "1"
+```
+
+The service then loads entirely from disk and never contacts Hugging Face. Unset it when
+you want to pick up a new model revision.
+
 **PowerShell blocks `Activate.ps1`.** Allow scripts for the current session only:
 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned`.
 
