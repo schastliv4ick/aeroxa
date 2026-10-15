@@ -191,3 +191,69 @@ def test_pipeline_labels_a_genuine_low_relevance_abstention(offline_pipeline, mo
 
     assert result.reason == module.NO_ANSWER_LOW_RELEVANCE
     assert result.answer == prompts.ABSTENTION_MESSAGES["ru"]
+
+
+def test_chinese_question_is_answered_in_russian(offline_pipeline, monkeypatch):
+    """Answers are written in Russian whatever the question's language, but abstention is
+    still gated on the question's language: a Chinese question scoring in the Chinese band
+    must reach the generator, not be refused."""
+    import asyncio
+
+    from app.rag import prompts
+
+    p, module = offline_pipeline
+    captured = {}
+
+    async def fake_retrieve(*args, **kwargs):
+        return p._stub_fragments(0.119)  # lowest measured answerable zh score
+
+    class RecordingLLM:
+        model = "qwen3"
+
+        async def complete(self, messages, *args, **kwargs):
+            captured["system"] = messages[0]["content"]
+            return "Ответ [1]"
+
+    monkeypatch.setattr(p, "retrieve", fake_retrieve)
+    monkeypatch.setattr(module, "get_llm", lambda: RecordingLLM())
+
+    result = asyncio.run(p.answer("最低注册资本是多少？"))
+
+    assert result.abstained is False
+    assert result.language == "ru"
+    assert prompts.LANGUAGE_NAMES["ru"] in captured["system"]
+
+
+def test_abstention_message_is_in_russian_for_a_chinese_question(offline_pipeline, monkeypatch):
+    import asyncio
+
+    from app.rag import prompts
+
+    p, _ = offline_pipeline
+
+    async def fake_retrieve(*args, **kwargs):
+        return p._stub_fragments(0.0)
+
+    monkeypatch.setattr(p, "retrieve", fake_retrieve)
+
+    result = asyncio.run(p.answer("进口增值税税率是多少？"))
+
+    assert result.abstained is True
+    assert result.answer == prompts.ABSTENTION_MESSAGES["ru"]
+
+
+def test_request_language_still_overrides_the_default(offline_pipeline, monkeypatch):
+    import asyncio
+
+    from app.rag import prompts
+
+    p, _ = offline_pipeline
+
+    async def fake_retrieve(*args, **kwargs):
+        return p._stub_fragments(0.0)
+
+    monkeypatch.setattr(p, "retrieve", fake_retrieve)
+
+    result = asyncio.run(p.answer("进口增值税税率是多少？", language="zh"))
+
+    assert result.answer == prompts.ABSTENTION_MESSAGES["zh"]
