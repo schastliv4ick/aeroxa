@@ -50,6 +50,7 @@ class LLMClient:
                     self._settings.llm_temperature if temperature is None else temperature
                 ),
                 max_tokens=max_tokens or self._settings.llm_max_tokens,
+                extra_body=self._settings.llm_extra_body or None,
             )
         except APIError as error:
             raise LLMError(f"LLM request failed: {error}") from error

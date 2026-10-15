@@ -114,7 +114,10 @@ class Pipeline:
         act_ids: list[str] | None = None,
     ) -> AnswerResult:
         started = time.perf_counter()
-        answer_language = language or prompts.detect_language(question)
+        # The reranker's score scale follows the language the question was asked in, so
+        # abstention is gated on that, not on the language the answer is written in.
+        question_language = prompts.detect_language(question)
+        answer_language = language or self._settings.answer_language or question_language
 
         standalone = question
         if history and self._settings.condense_enabled:
@@ -122,12 +125,12 @@ class Pipeline:
 
         fragments = await self.retrieve(standalone, top_k=top_k, act_ids=act_ids)
 
-        if self._should_abstain(fragments, answer_language):
+        if self._should_abstain(fragments, question_language):
             log.info(
                 "abstaining (%s): best score %.3f < %.3f",
-                answer_language,
+                question_language,
                 fragments[0].score if fragments else 0.0,
-                self.abstain_threshold_for(answer_language),
+                self.abstain_threshold_for(question_language),
             )
             return AnswerResult(
                 answer=prompts.ABSTENTION_MESSAGES.get(
@@ -145,8 +148,10 @@ class Pipeline:
         messages = [
             {
                 "role": "system",
-                "content": prompts.SYSTEM_PROMPT.format(
-                    language=prompts.LANGUAGE_NAMES.get(answer_language, "the user's language")
+                "content": self._thinking_switch(
+                    prompts.SYSTEM_PROMPT.format(
+                        language=prompts.LANGUAGE_NAMES.get(answer_language, "the user's language")
+                    )
                 ),
             },
             {
@@ -208,6 +213,12 @@ class Pipeline:
             return False
         return fragments[0].score < self.abstain_threshold_for(language)
 
+    def _thinking_switch(self, prompt: str) -> str:
+        """Append Qwen3's "/no_think" when reasoning is disabled (see ``llm_disable_thinking``)."""
+        if self._settings.llm_disable_thinking:
+            return f"{prompt}\n/no_think"
+        return prompt
+
     async def _condense(self, question: str, history: list[dict[str, str]]) -> str:
         turns = history[-self._settings.condense_max_history_turns :]
         rendered = "\n".join(f"{turn['role']}: {turn['content']}" for turn in turns)
@@ -216,8 +227,8 @@ class Pipeline:
                 [
                     {
                         "role": "user",
-                        "content": prompts.CONDENSE_PROMPT.format(
-                            history=rendered, question=question
+                        "content": self._thinking_switch(
+                            prompts.CONDENSE_PROMPT.format(history=rendered, question=question)
                         ),
                     }
                 ],

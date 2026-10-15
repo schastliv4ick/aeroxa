@@ -3,7 +3,7 @@
 Rules are those of ТЗ slide 10:
   1. answer only from the supplied context,
   2. cite the concrete article behind every statement,
-  3. answer in the language of the question,
+  3. answer in the configured answer language (Russian by default),
   4. no context -> abstain and escalate to a lawyer.
 """
 

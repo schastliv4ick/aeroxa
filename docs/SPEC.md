@@ -231,11 +231,15 @@ the first user's request.
 - System prompt enforces the four hard rules from slide 10:
   1. answer only from the supplied context,
   2. cite the specific article for every statement,
-  3. answer in the language of the question,
+  3. answer in the configured answer language (Russian by default),
   4. if the context is insufficient, abstain and escalate to a lawyer.
 - Context blocks are numbered `[1]…[n]` with their breadcrumbs so the model can cite them.
-- Answer language is determined by script detection on the question (Cyrillic / CJK /
-  Latin) and stated explicitly in the prompt, with a `language` request override.
+- Answers are written in Russian by default (`ANSWER_LANGUAGE=ru`, owner decision
+  2026-10-13), whatever language the question was asked in, and the language is stated
+  explicitly in the prompt. A `language` request override still wins; an empty
+  `ANSWER_LANGUAGE` falls back to the question's language. The question's language is
+  still detected by script (Cyrillic / CJK / Latin), because the abstention threshold
+  follows the language the question was asked in, not the answer's.
 - `temperature` defaults to `0.1`.
 
 ### Multi-turn

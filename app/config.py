@@ -69,6 +69,11 @@ class Settings(BaseSettings):
     # them, only lowering the common value.
     abstain_threshold_by_language: dict[str, float] = {}
 
+    # Language every answer is written in, whatever language the question was asked in.
+    # Russian by owner decision (2026-10-13). Set to an empty value to answer in the
+    # question's language instead. A per-request `language` still overrides this.
+    answer_language: str | None = "ru"
+
     # --- LLM (OpenAI-compatible: vLLM, Ollama, OpenRouter, ...) --------------
     llm_base_url: str = "http://localhost:8001/v1"
     llm_api_key: str = "not-needed"
@@ -76,6 +81,18 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.1
     llm_max_tokens: int = 1200
     llm_timeout_s: float = 120.0
+    # Qwen3 reasons before answering unless told not to. On a CPU host that reasoning is
+    # most of the latency (a one-word answer: 44 s with it, 1 s without), and a long
+    # reasoning pass can exhaust LLM_MAX_TOKENS before the answer starts. When true,
+    # "/no_think" -- Qwen3's own switch, honoured by Ollama, vLLM and OpenRouter alike --
+    # is appended to the prompts. Models without the switch see a harmless trailing token.
+    llm_disable_thinking: bool = True
+    # Backend-specific fields merged into every chat-completions request body. Ollama
+    # ignores "/no_think" on its OpenAI endpoint and keeps reasoning (measured on qwen3:8b:
+    # 400 completion tokens and 121 s vs 51 tokens and 56 s), so with Ollama set
+    # LLM_EXTRA_BODY={"reasoning_effort": "none"}. Empty by default: other backends honour
+    # "/no_think" and may reject an unknown reasoning_effort value.
+    llm_extra_body: dict[str, object] = {}
     # Condensing a follow-up into a standalone question is a second, cheap LLM call.
     condense_enabled: bool = True
     condense_max_history_turns: int = 6
